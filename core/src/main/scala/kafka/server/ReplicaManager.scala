@@ -301,8 +301,10 @@ class ReplicaManager(val config: KafkaConfig,
 
   def startup(): Unit = {
     // start ISR expiration thread
+    //清理ISR中落后的Follower副本
     // A follower can lag behind leader for up to config.replicaLagTimeMaxMs x 1.5 before it is removed from ISR
     scheduler.schedule("isr-expiration", maybeShrinkIsr _, period = config.replicaLagTimeMaxMs / 2, unit = TimeUnit.MILLISECONDS)
+    //传播最新的ISR副本
     scheduler.schedule("isr-change-propagation", maybePropagateIsrChanges _, period = 2500L, unit = TimeUnit.MILLISECONDS)
     scheduler.schedule("shutdown-idle-replica-alter-log-dirs-thread", shutdownIdleReplicaAlterLogDirsThread _, period = 10000L, unit = TimeUnit.MILLISECONDS)
 
@@ -500,8 +502,10 @@ class ReplicaManager(val config: KafkaConfig,
                     responseCallback: Map[TopicPartition, PartitionResponse] => Unit,
                     delayedProduceLock: Option[Lock] = None,
                     recordConversionStatsCallback: Map[TopicPartition, RecordConversionStats] => Unit = _ => ()): Unit = {
+    // 判断是否为有效的ACK参数
     if (isValidRequiredAcks(requiredAcks)) {
       val sTime = time.milliseconds
+      // 关键：将消息写入当前Broker的Leader副本
       val localProduceResults = appendToLocalLog(internalTopicsAllowed = internalTopicsAllowed,
         origin, entriesPerPartition, requiredAcks)
       debug("Produce to local log in %d ms".format(time.milliseconds - sTime))
@@ -515,7 +519,7 @@ class ReplicaManager(val config: KafkaConfig,
       }
 
       recordConversionStatsCallback(localProduceResults.map { case (k, v) => k -> v.info.recordConversionStats })
-
+      // 如果是延迟消息
       if (delayedProduceRequestRequired(requiredAcks, entriesPerPartition, localProduceResults)) {
         // create delayed produce operation
         val produceMetadata = ProduceMetadata(requiredAcks, produceStatus)
@@ -529,18 +533,21 @@ class ReplicaManager(val config: KafkaConfig,
         // requests may arrive and hence make this operation completable.
         delayedProducePurgatory.tryCompleteElseWatch(delayedProduce, producerRequestKeys)
 
-      } else {
+      } else {// 如果是普通消息
         // we can respond immediately
         val produceResponseStatus = produceStatus.map { case (k, status) => k -> status.responseStatus }
+        // 正常调用响应回调方法
         responseCallback(produceResponseStatus)
       }
-    } else {
+    } else {// 如果是无效ACK参数，返回异常
       // If required.acks is outside accepted range, something is wrong with the client
       // Just return an error and don't handle the request at all
+      // 异常状态码
       val responseStatus = entriesPerPartition.map { case (topicPartition, _) =>
         topicPartition -> new PartitionResponse(Errors.INVALID_REQUIRED_ACKS,
           LogAppendInfo.UnknownLogAppendInfo.firstOffset.getOrElse(-1), RecordBatch.NO_TIMESTAMP, LogAppendInfo.UnknownLogAppendInfo.logStartOffset)
       }
+      //调用回调方法
       responseCallback(responseStatus)
     }
   }
@@ -782,15 +789,18 @@ class ReplicaManager(val config: KafkaConfig,
     entriesPerPartition.map { case (topicPartition, records) =>
       brokerTopicStats.topicStats(topicPartition.topic).totalProduceRequestRate.mark()
       brokerTopicStats.allTopicsStats.totalProduceRequestRate.mark()
-
+      // 如果是内部主题，且Broker参数配置不允许写入内部主题，则直接报错
       // reject appending to internal topics if it is not allowed
       if (Topic.isInternal(topicPartition.topic) && !internalTopicsAllowed) {
         (topicPartition, LogAppendResult(
           LogAppendInfo.UnknownLogAppendInfo,
           Some(new InvalidTopicException(s"Cannot append to internal topic ${topicPartition.topic}"))))
       } else {
+        //正常流程
         try {
+          //1.获取分区
           val partition = getPartitionOrException(topicPartition, expectLeader = true)
+          // 2.写入消息
           val info = partition.appendRecordsToLeader(records, origin, requiredAcks)
           val numAppendedMessages = info.numMessages
 

@@ -140,13 +140,22 @@ class OffsetIndex(_file: File, baseOffset: Long, maxIndexSize: Int = -1, writabl
    */
   def append(offset: Long, position: Int): Unit = {
     inLock(lock) {
+      // 1.判断索引文件是否写满
       require(!isFull, "Attempt to append to a full index (size = " + _entries + ").")
+      // 2.必须满足以下任意条件才允许写入索引项：
+      // CASE ONE：当前索引文件为空
+      // CASE TWO：要写入的位移大于当前所有已写入的索引项的位移
       if (_entries == 0 || offset > _lastOffset) {
         trace(s"Adding index entry $offset => $position to ${file.getAbsolutePath}")
+        // 3.1 向mmap中写入相对位移值
         mmap.putInt(relativeOffset(offset))
+        // 3.2 向mmap中写入物理位置信息
         mmap.putInt(position)
+        // 4.更新其他元数据统计信息，如当前索引项计数器_entries和当前索引项最新位移值_lastOffset
         _entries += 1
         _lastOffset = offset
+        // 5.校验写入的索引项格式
+        //// 第5步：执行校验。写入的索引项格式必须符合要求，即索引项个数*单个索引项占用字节数匹配当前文件物理大小，否则说明文件已损坏
         require(_entries * entrySize == mmap.position(), entries + " entries but file position in index is " + mmap.position() + ".")
       } else {
         throw new InvalidOffsetException(s"Attempt to append an offset ($offset) to position $entries no larger than" +

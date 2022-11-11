@@ -64,6 +64,7 @@ object Kafka extends Logging {
 
   def main(args: Array[String]): Unit = {
     try {
+      //读取配置
       val serverProps = getPropsFromArgs(args)
       val kafkaServerStartable = KafkaServerStartable.fromProps(serverProps)
 
@@ -76,10 +77,13 @@ object Kafka extends Logging {
             s"by a signal. Reason for registration failure is: $e", e)
       }
 
+      //shutdown钩子
       // attach shutdown handler to catch terminating signals as well as normal termination
       Exit.addShutdownHook("kafka-shutdown-hook", kafkaServerStartable.shutdown)
 
+      //启动线程
       kafkaServerStartable.startup()
+      //等待关闭
       kafkaServerStartable.awaitShutdown()
     }
     catch {

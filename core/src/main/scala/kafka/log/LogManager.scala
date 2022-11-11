@@ -389,17 +389,23 @@ class LogManager(logDirs: Seq[File],
     /* Schedule the cleanup task to delete old logs */
     if (scheduler != null) {
       info("Starting log cleanup with a period of %d ms.".format(retentionCheckMs))
+      //日志清理任务
+      //按照logSegment的最大存活时间和最大大小进行清理；删除过期的logSegment，还会根据Log的大小决定是否删除最旧的LogSegment
       scheduler.schedule("kafka-log-retention",
                          cleanupLogs _,
                          delay = InitialTaskDelayMs,
                          period = retentionCheckMs,
                          TimeUnit.MILLISECONDS)
       info("Starting log flusher with a default period of %d ms.".format(flushCheckMs))
+      //日志刷磁盘任务
+      //根据配置的时长定时进行flush操作
       scheduler.schedule("kafka-log-flusher",
                          flushDirtyLogs _,
                          delay = InitialTaskDelayMs,
                          period = flushCheckMs,
                          TimeUnit.MILLISECONDS)
+      //更新日志检查点任务
+//定时将每一个Log的recoveryPoint写入RecoveryPointCheckpoint文件
       scheduler.schedule("kafka-recovery-point-checkpoint",
                          checkpointLogRecoveryOffsets _,
                          delay = InitialTaskDelayMs,
@@ -410,6 +416,7 @@ class LogManager(logDirs: Seq[File],
                          delay = InitialTaskDelayMs,
                          period = flushStartOffsetCheckpointMs,
                          TimeUnit.MILLISECONDS)
+      //删除日志任务
       scheduler.schedule("kafka-delete-logs", // will be rescheduled after each delete logs with a dynamic period
                          deleteLogs _,
                          delay = InitialTaskDelayMs,

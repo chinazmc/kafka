@@ -195,20 +195,21 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
   def startup(): Unit = {
     try {
       info("starting")
-
+      // 1.如果Kafka Sever正在停止中，禁止启动
       if (isShuttingDown.get)
         throw new IllegalStateException("Kafka server is still shutting down, cannot re-start!")
-
+      // 2.如果Kafka Sever已经启动成功，直接返回
       if (startupComplete.get)
         return
-
+      // 3.设置标志，表示正在启动
       val canStartup = isStartingUp.compareAndSet(false, true)
       if (canStartup) {
+        // 4.设置Broker状态
         brokerState.newState(Starting)
 
         /* setup zookeeper */
         initZkClient(time)
-
+        // 7.获取或创建ClusterId，与Broker集群控制管理有关
         /* Get or create cluster_id */
         _clusterId = getOrGenerateClusterId(zkClient)
         info(s"Cluster ID = $clusterId")
@@ -223,6 +224,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
             s"The broker is trying to join the wrong cluster. Configured zookeeper.connect may be wrong.")
 
         /* generate brokerId */
+        // 8.设置Broker ID
         config.brokerId = getOrGenerateBrokerId(preloadedBrokerMetadataCheckpoint)
         logContext = new LogContext(s"[KafkaServer id=${config.brokerId}] ")
         this.logIdent = logContext.logPrefix
@@ -232,6 +234,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         config.dynamicConfig.initialize(zkClient)
 
         /* start scheduler */
+        // 5.启动一个调度线程池，通过参数`background.threads`设置线程数
         kafkaScheduler = new KafkaScheduler(config.backgroundThreads)
         kafkaScheduler.startup()
 
@@ -250,6 +253,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         logDirFailureChannel = new LogDirFailureChannel(config.logDirs.size)
 
         /* start log manager */
+        // 9.启动日志管理器
         logManager = LogManager(config, initialOfflineDirs, zkClient, brokerState, kafkaScheduler, time, brokerTopicStats, logDirFailureChannel)
         logManager.startup()
 
@@ -258,7 +262,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         // This keeps the cache up-to-date if new SCRAM mechanisms are enabled dynamically.
         tokenCache = new DelegationTokenCache(ScramMechanism.mechanismNames)
         credentialProvider = new CredentialProvider(ScramMechanism.mechanismNames, tokenCache)
-
+        // 10.启动Server端的网络通讯组件
         // Create and start the socket server acceptor threads so that the bound port is known.
         // Delay starting processors until the end of the initialization sequence to ensure
         // that credentials have been loaded before processing authentications.
@@ -266,6 +270,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         socketServer.startup(startupProcessors = false)
 
         /* start replica manager */
+        // 11.启动副本同步组件
         replicaManager = createReplicaManager(isShuttingDown)
         replicaManager.startup()
 
@@ -279,12 +284,12 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         tokenManager = new DelegationTokenManager(config, tokenCache, time , zkClient)
         tokenManager.startup()
 
-        /* start kafka controller */
+        /* start kafka controller */// 12.启动KafkaController
         kafkaController = new KafkaController(config, zkClient, time, metrics, brokerInfo, brokerEpoch, tokenManager, threadNamePrefix)
         kafkaController.startup()
 
         adminManager = new AdminManager(config, metrics, metadataCache, zkClient)
-
+        // 13.启动GroupCoordinator
         /* start group coordinator */
         // Hardcode Time.SYSTEM for now as some Streams tests fail otherwise, it would be good to fix the underlying issue
         groupCoordinator = GroupCoordinator(config, zkClient, replicaManager, Time.SYSTEM, metrics)

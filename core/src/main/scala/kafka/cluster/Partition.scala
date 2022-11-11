@@ -958,7 +958,7 @@ class Partition(val topicPartition: TopicPartition,
         case Some(leaderLog) =>
           val minIsr = leaderLog.config.minInSyncReplicas
           val inSyncSize = inSyncReplicaIds.size
-
+          // 确保ISR副本数符合写入要求
           // Avoid writing to leader if there are not enough insync replicas to make it safe
           if (inSyncSize < minIsr && requiredAcks == -1) {
             throw new NotEnoughReplicasException(s"The size of the current ISR $inSyncReplicaIds " +
