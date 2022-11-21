@@ -325,7 +325,9 @@ public class Selector implements Selectable, AutoCloseable {
     }
 
     protected SelectionKey registerChannel(String id, SocketChannel socketChannel, int interestedOps) throws IOException {
+        // 把SocketChannel注册OP_READ到选择器上，同时绑定SelectionKey
         SelectionKey key = socketChannel.register(nioSelector, interestedOps);
+        // 构建Kafka通道KafkaChannel并将其绑定到选择键上
         KafkaChannel channel = buildAndAttachKafkaChannel(socketChannel, id, key);
         this.channels.put(id, channel);
         if (idleExpiryManager != null)
@@ -335,8 +337,10 @@ public class Selector implements Selectable, AutoCloseable {
 
     private KafkaChannel buildAndAttachKafkaChannel(SocketChannel socketChannel, String id, SelectionKey key) throws IOException {
         try {
+            // 构建Kafka通道
             KafkaChannel channel = channelBuilder.buildChannel(id, key, maxReceiveSize, memoryPool,
                 new SelectorChannelMetadataRegistry());
+            // 将Kafka通道绑定到选择键上，这样就可以根据选择键获取到对应的通道
             key.attach(channel);
             return channel;
         } catch (Exception e) {

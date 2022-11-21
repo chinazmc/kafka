@@ -267,6 +267,8 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         // Delay starting processors until the end of the initialization sequence to ensure
         // that credentials have been loaded before processing authentications.
         socketServer = new SocketServer(config, metrics, time, credentialProvider)
+        // Processor涉及到权限相关，所以调用SocketServer.startup时，只先启动Acceptor，初始化完权限相关的凭证后，再启动Processor，所以startupProcessors为false
+        // 启动SocketServer，但不启动Processor线程
         socketServer.startup(startupProcessors = false)
 
         /* start replica manager */
@@ -313,12 +315,12 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         val fetchManager = new FetchManager(Time.SYSTEM,
           new FetchSessionCache(config.maxIncrementalFetchSessionCacheSlots,
             KafkaServer.MIN_INCREMENTAL_FETCH_SESSION_EVICTION_MS))
-
+        // KafkaApis进行真正的业务逻辑处理
         /* start processing requests */
         dataPlaneRequestProcessor = new KafkaApis(socketServer.dataPlaneRequestChannel, replicaManager, adminManager, groupCoordinator, transactionCoordinator,
           kafkaController, zkClient, config.brokerId, config, metadataCache, metrics, authorizer, quotaManagers,
           fetchManager, brokerTopicStats, clusterId, time, tokenManager)
-
+        // 创建KafkaRequestHandler线程池，其中KafkaRequestHandler主要用来从请求通道中取请求
         dataPlaneRequestHandlerPool = new KafkaRequestHandlerPool(config.brokerId, socketServer.dataPlaneRequestChannel, dataPlaneRequestProcessor, time,
           config.numIoThreads, s"${SocketServer.DataPlaneMetricPrefix}RequestHandlerAvgIdlePercent", SocketServer.DataPlaneThreadPrefix)
 
@@ -347,6 +349,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         dynamicConfigManager.startup()
 
         socketServer.startControlPlaneProcessor(authorizerFutures)
+        // Processor涉及到权限相关的操作，所以要等初始化完成，再启动Processor
         socketServer.startDataPlaneProcessors(authorizerFutures)
         brokerState.newState(RunningAsBroker)
         shutdownLatch = new CountDownLatch(1)
