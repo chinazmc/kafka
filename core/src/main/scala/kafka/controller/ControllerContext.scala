@@ -72,23 +72,23 @@ case class ReplicaAssignment private (replicas: Seq[Int],
 }
 
 class ControllerContext {
-  val stats = new ControllerStats
-  var offlinePartitionCount = 0
-  var shuttingDownBrokerIds: mutable.Set[Int] = mutable.Set.empty
-  private var liveBrokers: Set[Broker] = Set.empty
-  private var liveBrokerEpochs: Map[Int, Long] = Map.empty
-  var epoch: Int = KafkaController.InitialControllerEpoch
-  var epochZkVersion: Int = KafkaController.InitialControllerEpochZkVersion
+  val stats = new ControllerStats// Controller统计信息类
+  var offlinePartitionCount = 0// 离线分区计数器
+  var shuttingDownBrokerIds: mutable.Set[Int] = mutable.Set.empty // 关闭中Broker的Id列表
+  private var liveBrokers: Set[Broker] = Set.empty// 当前运行中Broker对象列表
+  private var liveBrokerEpochs: Map[Int, Long] = Map.empty// 运行中Broker Epoch列表
+  var epoch: Int = KafkaController.InitialControllerEpoch // Controller当前Epoch值
+  var epochZkVersion: Int = KafkaController.InitialControllerEpochZkVersion// Controller对应ZooKeeper节点的Epoch值
 
-  var allTopics: Set[String] = Set.empty
-  val partitionAssignments = mutable.Map.empty[String, mutable.Map[Int, ReplicaAssignment]]
-  val partitionLeadershipInfo = mutable.Map.empty[TopicPartition, LeaderIsrAndControllerEpoch]
-  val partitionsBeingReassigned = mutable.Set.empty[TopicPartition]
-  val partitionStates = mutable.Map.empty[TopicPartition, PartitionState]
-  val replicaStates = mutable.Map.empty[PartitionAndReplica, ReplicaState]
-  val replicasOnOfflineDirs: mutable.Map[Int, Set[TopicPartition]] = mutable.Map.empty
+  var allTopics: Set[String] = Set.empty// 集群主题列表
+  val partitionAssignments = mutable.Map.empty[String, mutable.Map[Int, ReplicaAssignment]]// 主题分区的副本列表
+  val partitionLeadershipInfo = mutable.Map.empty[TopicPartition, LeaderIsrAndControllerEpoch]// 主题分区的Leader/ISR副本信息
+  val partitionsBeingReassigned = mutable.Set.empty[TopicPartition]// 正处于副本重分配过程的主题分区列表
+  val partitionStates = mutable.Map.empty[TopicPartition, PartitionState]// 主题分区状态列表
+  val replicaStates = mutable.Map.empty[PartitionAndReplica, ReplicaState] // 主题分区的副本状态列表
+  val replicasOnOfflineDirs: mutable.Map[Int, Set[TopicPartition]] = mutable.Map.empty // 不可用磁盘路径上的副本列表
 
-  val topicsToBeDeleted = mutable.Set.empty[String]
+  val topicsToBeDeleted = mutable.Set.empty[String]// 待删除主题列表
 
   /** The following topicsWithDeletionStarted variable is used to properly update the offlinePartitionCount metric.
    * When a topic is going through deletion, we don't want to keep track of its partition state
@@ -109,8 +109,8 @@ class ControllerContext {
    * NonExistentPartition state. Once a topic is in the topicsWithDeletionStarted set, we will stop monitoring
    * its partition state changes in the offlinePartitionCount metric
    */
-  val topicsWithDeletionStarted = mutable.Set.empty[String]
-  val topicsIneligibleForDeletion = mutable.Set.empty[String]
+  val topicsWithDeletionStarted = mutable.Set.empty[String]// 已开启删除的主题列表
+  val topicsIneligibleForDeletion = mutable.Set.empty[String]// 暂时无法执行删除的主题列表
 
   private def clearTopicsState(): Unit = {
     allTopics = Set.empty
@@ -342,12 +342,18 @@ class ControllerContext {
     val currentState = partitionStates.put(partition, targetState).getOrElse(NonExistentPartition)
     updatePartitionStateMetrics(partition, currentState, targetState)
   }
-
+  // 更新offlinePartitionCount元数据
   private def updatePartitionStateMetrics(partition: TopicPartition,
                                           currentState: PartitionState,
                                           targetState: PartitionState): Unit = {
+    // 如果该主题当前并未处于删除中状态
     if (!isTopicDeletionInProgress(partition.topic)) {
+      // targetState表示该分区要变更到的状态
+      // 如果当前状态不是OfflinePartition，即离线状态并且目标状态是离线状态
+      // 这个if语句判断是否要将该主题分区状态转换到离线状态
       if (currentState != OfflinePartition && targetState == OfflinePartition) {
+        // 如果当前状态已经是离线状态，但targetState不是
+        // 这个else if语句判断是否要将该主题分区状态转换到非离线状态
         offlinePartitionCount = offlinePartitionCount + 1
       } else if (currentState == OfflinePartition && targetState != OfflinePartition) {
         offlinePartitionCount = offlinePartitionCount - 1
