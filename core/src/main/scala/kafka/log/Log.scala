@@ -209,7 +209,7 @@ object RollParams {
  * @param producerIdExpirationCheckIntervalMs How often to check for producer ids which need to be expired
  */
 @threadsafe
-class Log(@volatile var dir: File,
+class Log(@volatile var dir: File,//日志所在的文件夹路径
           @volatile var config: LogConfig,
           @volatile var logStartOffset: Long,//日志的当前最早位移。
           @volatile var recoveryPoint: Long,
@@ -701,6 +701,7 @@ class Log(@volatile var dir: File,
     // first do a pass through the files in the log directory and remove any temporary files
     // and find any interrupted swap operations
 //    我们首先来看第一步，removeTempFilesAndCollectSwapFiles 方法的实现。我用注释的方式详细解释了每行代码的作用：
+//    移除上次 Failure 遗留下来的各种临时文件（包括.cleaned、.swap、.deleted 文件等）
     val swapFiles = removeTempFilesAndCollectSwapFiles()
 
     // Now do a second pass and load all the log and index files.
@@ -712,7 +713,8 @@ class Log(@volatile var dir: File,
       // call to loadSegmentFiles().
       logSegments.foreach(_.close())
       segments.clear()
-//      执行完了 removeTempFilesAndCollectSwapFiles 逻辑之后，源码开始清空已有日志段集合，并重新加载日志段文件。这就是第二步。这里调用的主要方法是 loadSegmentFiles。
+//      执行完了 removeTempFilesAndCollectSwapFiles 逻辑之后，源码开始清空已有日志段集合，并重新加载日志段文件。
+      //      这就是第二步。这里调用的主要方法是 loadSegmentFiles。
       loadSegmentFiles()
     }
 

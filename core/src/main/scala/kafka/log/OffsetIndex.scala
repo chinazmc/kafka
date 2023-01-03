@@ -80,6 +80,9 @@ class OffsetIndex(_file: File, baseOffset: Long, maxIndexSize: Int = -1, writabl
    * Find the largest offset less than or equal to the given targetOffset
    * and return a pair holding this offset and its corresponding physical file position.
    *
+   *查找小于或等于给定targetOffset的最大偏移
+   *并返回保持该偏移及其对应的物理文件位置的对。
+   *
    * @param targetOffset The offset to look up.
    * @return The offset found and the corresponding file position for this offset
    *         If the target offset is smaller than the least entry in the index (or the index is empty),

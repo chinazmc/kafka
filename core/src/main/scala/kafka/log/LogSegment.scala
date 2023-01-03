@@ -49,8 +49,13 @@ import scala.math._
  * @param txnIndex The transaction index
  * @param baseOffset A lower bound on the offsets in this segment
  * @param indexIntervalBytes The approximate number of bytes between entries in the index
- * @param rollJitterMs The maximum random jitter subtracted from the scheduled segment roll time
+ * @param rollJitterMs The maximum random jitter subtracted from the scheduled segment roll time从计划段滚动时间中减去的最大随机抖动
  * @param time The time instance
+ *
+ *
+ * 日志段。每个段有两个组件：日志和索引。日志是包含以下内容的FileRecords实际消息。索引是从逻辑偏移映射到物理文件位置的OffsetIndex。
+ * 每个段有一个基本偏移量，该偏移量<=此日志段中任何消息的最小偏移量，>任何先前的日志段中的任何偏移量。
+ *基偏移量为[base_offset]的段将存储在两个文件中，一个是[base_ooffset].index，另一个是[base_offset].log文件。
  */
 @nonthreadsafe
 class LogSegment private[log] (val log: FileRecords,//实际保存 Kafka 消息的对象；
@@ -282,11 +287,14 @@ class LogSegment private[log] (val log: FileRecords,//实际保存 Kafka 消息�
    * The startingFilePosition argument is an optimization that can be used if we already know a valid starting position
    * in the file higher than the greatest-lower-bound from the index.
    *
+   * 查找偏移量>=请求偏移量的第一条消息的物理文件位置。
+   * startingFilePosition参数是一个优化，如果我们已经知道有效的起始位置，则可以使用它高于索引的最大下限。
+   *
    * @param offset The offset we want to translate
    * @param startingFilePosition A lower bound on the file position from which to begin the search. This is purely an optimization and
    * when omitted, the search will begin at the position in the offset index.
    * @return The position in the log storing the message with the least offset >= the requested offset and the size of the
-    *        message or null if no message meets this criteria.
+   *        message or null if no message meets this criteria.
    */
   @threadsafe
   private[log] def translateOffset(offset: Long, startingFilePosition: Int = 0): LogOffsetPosition = {
@@ -353,11 +361,15 @@ class LogSegment private[log] (val log: FileRecords,//实际保存 Kafka 消息�
    * @throws LogSegmentOffsetOverflowException if the log segment contains an offset that causes the index offset to overflow
    */
     /***
-     * recover 开始时，代码依次调用索引对象的 reset 方法清空所有的索引文件，之后会开始遍历日志段中的所有消息集合或消息批次（RecordBatch）。对于读取到的每个消息集合，日志段必须要确保它们是合法的，这主要体现在两个方面：
+     * recover 开始时，代码依次调用索引对象的 reset 方法清空所有的索引文件，之后会开始遍历日志段中的所有消息集合或消息批次（RecordBatch）。
+     * 对于读取到的每个消息集合，日志段必须要确保它们是合法的，这主要体现在两个方面：
 该集合中的消息必须要符合 Kafka 定义的二进制格式；
 该集合中最后一条消息的位移值不能越界，即它与日志段起始位移的差值必须是一个正整数值。
-校验完消息集合之后，代码会更新遍历过程中观测到的最大时间戳以及所属消息的位移值。同样，这两个数据用于后续构建索引项。再之后就是不断累加当前已读取的消息字节数，并根据该值有条件地写入索引项。最后是更新事务型 Producer 的状态以及 Leader Epoch 缓存。不过，这两个并不是理解 Kafka 日志结构所必需的组件，因此，我们可以忽略它们。
-遍历执行完成后，Kafka 会将日志段当前总字节数和刚刚累加的已读取字节数进行比较，如果发现前者比后者大，说明日志段写入了一些非法消息，需要执行截断操作，将日志段大小调整回合法的数值。同时， Kafka 还必须相应地调整索引文件的大小。把这些都做完之后，日志段恢复的操作也就宣告结束了。
+校验完消息集合之后，代码会更新遍历过程中观测到的最大时间戳以及所属消息的位移值。
+    同样，这两个数据用于后续构建索引项。再之后就是不断累加当前已读取的消息字节数，并根据该值有条件地写入索引项。
+    最后是更新事务型 Producer 的状态以及 Leader Epoch 缓存。不过，这两个并不是理解 Kafka 日志结构所必需的组件，因此，我们可以忽略它们。
+遍历执行完成后，Kafka 会将日志段当前总字节数和刚刚累加的已读取字节数进行比较，如果发现前者比后者大，说明日志段写入了一些非法消息，
+    需要执行截断操作，将日志段大小调整回合法的数值。同时， Kafka 还必须相应地调整索引文件的大小。把这些都做完之后，日志段恢复的操作也就宣告结束了。
      *
      * */
   @nonthreadsafe
